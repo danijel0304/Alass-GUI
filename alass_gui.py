@@ -41,6 +41,13 @@ COMMON_ENCODINGS = [
 ENCODING_FALLBACKS = ["windows-1250", "windows-1252", "iso-8859-2", "iso-8859-1", "utf-8"]
 PERCENT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
 PROGRESS_RECORD_RE = re.compile(r"^\s*\d+\s*/\s*\d+\s+\[")
+SRT_TIMESPAN_RE = re.compile(
+    r"^\s*\d{1,2}:\d{2}:\d{2}[,.]\d{1,3}\s+-->\s+\d{1,2}:\d{2}:\d{2}[,.]\d{1,3}(?:\s+.*)?$"
+)
+LOOSE_SRT_TIMESPAN_RE = re.compile(
+    r"^\s*(\d{1,2}:\d{2}:\d{2})[,.](\d{1,3})\s*(?:-->|->|=>|-|–|—)\s*"
+    r"(\d{1,2}:\d{2}:\d{2})[,.](\d{1,3})(.*)$"
+)
 TEXT = {
     "en": {
         "tab_single": "Sync",
@@ -50,8 +57,9 @@ TEXT = {
         "check_updates": "Check updates",
         "files": "Files",
         "alass_program": "Alass program",
-        "reference": "Reference",
-        "incorrect_subtitle": "Incorrect subtitle",
+        "video_file": "Video",
+        "correct_subtitle": "Correct subtitle (optional)",
+        "incorrect_subtitle": "Subtitle to fix",
         "output_subtitle": "Output subtitle",
         "choose": "Choose",
         "options": "Options",
@@ -67,6 +75,7 @@ TEXT = {
         "no_split": "No splits (--no-split)",
         "allow_negative": "Allow negative timestamps",
         "disable_fps": "Disable FPS guessing",
+        "repair_srt": "Repair simple SRT errors",
         "command": "Command",
         "save_mode": "Subtitle saving",
         "suffix_mode": "Keep original and add .synced",
@@ -109,8 +118,9 @@ TEXT = {
         "check_updates": "Provjeri update",
         "files": "Datoteke",
         "alass_program": "Alass program",
-        "reference": "Referenca",
-        "incorrect_subtitle": "Neispravan titl",
+        "video_file": "Video",
+        "correct_subtitle": "Tocni prijevod (opcionalno)",
+        "incorrect_subtitle": "Prijevod za popraviti",
         "output_subtitle": "Izlazni titl",
         "choose": "Odaberi",
         "options": "Opcije",
@@ -126,6 +136,7 @@ TEXT = {
         "no_split": "Bez splitova (--no-split)",
         "allow_negative": "Dopusti negativna vremena",
         "disable_fps": "Iskljuci FPS guessing",
+        "repair_srt": "Popravi jednostavne SRT greske",
         "command": "Komanda",
         "save_mode": "Spremanje prijevoda",
         "suffix_mode": "Ostavi original i dodaj .synced",
@@ -178,7 +189,8 @@ class AlassGui(tk.Tk):
 
         self.language = tk.StringVar(value="en")
         self.alass_path = tk.StringVar(value=self._find_executable())
-        self.reference_file = tk.StringVar()
+        self.video_file = tk.StringVar()
+        self.correct_subtitle_file = tk.StringVar()
         self.incorrect_file = tk.StringVar()
         self.output_file = tk.StringVar()
         self.batch_folder = tk.StringVar()
@@ -202,6 +214,7 @@ class AlassGui(tk.Tk):
         self.no_split = tk.BooleanVar(value=False)
         self.allow_negative = tk.BooleanVar(value=False)
         self.disable_fps_guessing = tk.BooleanVar(value=False)
+        self.repair_srt = tk.BooleanVar(value=False)
 
         self.status = tk.StringVar(value=self._t("ready"))
         self.command_preview = tk.StringVar()
@@ -234,6 +247,15 @@ class AlassGui(tk.Tk):
             if local_tool.exists():
                 return str(local_tool)
         return shutil.which(name) or shutil.which(f"{name}.exe") or name
+
+    def _tool_available(self, value: str) -> bool:
+        tool = value.strip()
+        if not tool:
+            return False
+        path = Path(tool)
+        if path.parent != Path(".") or path.is_absolute():
+            return path.is_file()
+        return shutil.which(tool) is not None
 
     def _check_for_updates(self) -> None:
         if self.process is not None:
@@ -512,9 +534,10 @@ class AlassGui(tk.Tk):
         files.columnconfigure(1, weight=1)
 
         self._path_row(files, 0, self._t("alass_program"), self.alass_path, self._choose_executable)
-        self._path_row(files, 1, self._t("reference"), self.reference_file, self._choose_reference)
-        self._path_row(files, 2, self._t("incorrect_subtitle"), self.incorrect_file, self._choose_incorrect)
-        self._path_row(files, 3, self._t("output_subtitle"), self.output_file, self._choose_output, save=True)
+        self._path_row(files, 1, self._t("video_file"), self.video_file, self._choose_video)
+        self._path_row(files, 2, self._t("correct_subtitle"), self.correct_subtitle_file, self._choose_reference_subtitle)
+        self._path_row(files, 3, self._t("incorrect_subtitle"), self.incorrect_file, self._choose_incorrect)
+        self._path_row(files, 4, self._t("output_subtitle"), self.output_file, self._choose_output, save=True)
 
         options = ttk.LabelFrame(parent, text=self._t("options"), padding=12)
         options.grid(row=1, column=0, sticky="ew", pady=(12, 0))
@@ -535,7 +558,8 @@ class AlassGui(tk.Tk):
         checks.grid(row=3, column=0, columnspan=6, sticky="ew", pady=(10, 0))
         ttk.Checkbutton(checks, text=self._t("no_split"), variable=self.no_split).pack(side=tk.LEFT, padx=(0, 18))
         ttk.Checkbutton(checks, text=self._t("allow_negative"), variable=self.allow_negative).pack(side=tk.LEFT, padx=(0, 18))
-        ttk.Checkbutton(checks, text=self._t("disable_fps"), variable=self.disable_fps_guessing).pack(side=tk.LEFT)
+        ttk.Checkbutton(checks, text=self._t("disable_fps"), variable=self.disable_fps_guessing).pack(side=tk.LEFT, padx=(0, 18))
+        ttk.Checkbutton(checks, text=self._t("repair_srt"), variable=self.repair_srt).pack(side=tk.LEFT)
 
         ffmpeg = ttk.LabelFrame(parent, text="FFmpeg", padding=12)
         ffmpeg.grid(row=2, column=0, sticky="ew", pady=(12, 0))
@@ -776,7 +800,8 @@ class AlassGui(tk.Tk):
     def _bind_updates(self) -> None:
         variables = [
             self.alass_path,
-            self.reference_file,
+            self.video_file,
+            self.correct_subtitle_file,
             self.incorrect_file,
             self.output_file,
             self.single_output_mode,
@@ -794,6 +819,7 @@ class AlassGui(tk.Tk):
             self.no_split,
             self.allow_negative,
             self.disable_fps_guessing,
+            self.repair_srt,
         ]
         for variable in variables:
             variable.trace_add("write", lambda *_: self._refresh_command_preview())
@@ -803,10 +829,33 @@ class AlassGui(tk.Tk):
         if path:
             self.alass_path.set(path)
 
-    def _choose_reference(self) -> None:
-        path = filedialog.askopenfilename(title="Odaberi referentni video ili titl")
+    def _choose_video(self) -> None:
+        initial_dir = self._single_initial_dir()
+        path = self._choose_video_reference(initial_dir)
         if path:
-            self.reference_file.set(path)
+            self.video_file.set(path)
+
+    def _choose_reference_subtitle(self) -> None:
+        initial_dir = self._single_initial_dir()
+        path = filedialog.askopenfilename(
+            title="Odaberi tocni referentni titl",
+            initialdir=str(initial_dir),
+            filetypes=[("Subtitle files", "*.srt *.ssa *.ass *.idx *.sub"), ("All files", "*.*")],
+        )
+        if path:
+            self.correct_subtitle_file.set(path)
+
+    def _single_initial_dir(self) -> Path:
+        for value in (
+            self.incorrect_file.get().strip(),
+            self.video_file.get().strip(),
+            self.correct_subtitle_file.get().strip(),
+        ):
+            if value:
+                path = Path(value)
+                if path.parent.is_dir():
+                    return path.parent
+        return APP_DIR
 
     def _choose_incorrect(self) -> None:
         path = filedialog.askopenfilename(
@@ -818,6 +867,42 @@ class AlassGui(tk.Tk):
             if not self.output_file.get():
                 self.output_file.set(self._suggest_output_path(path))
             self._refresh_single_output_mode()
+            self._maybe_select_reference_for_subtitle(Path(path))
+
+    def _choose_video_reference(self, initial_dir: Path) -> str:
+        return filedialog.askopenfilename(
+            title="Odaberi video za ovaj titl",
+            initialdir=str(initial_dir),
+            filetypes=[("Video files", "*.mp4 *.mkv *.avi *.mov *.wmv *.m4v *.webm *.ts *.mpg *.mpeg"), ("All files", "*.*")],
+        )
+
+    def _maybe_select_reference_for_subtitle(self, subtitle: Path) -> None:
+        if self.video_file.get().strip():
+            return
+
+        video = self._match_video_for_subtitle(subtitle)
+        if video is not None:
+            self.video_file.set(str(video))
+            return
+
+        if messagebox.askyesno(
+            APP_TITLE,
+            "Nisam pronasao video istog imena kao odabrani titl.\n\nZelis li sada rucno odabrati video za ovaj titl?",
+        ):
+            path = self._choose_video_reference(subtitle.parent)
+            if path:
+                self.video_file.set(path)
+
+    def _match_video_for_subtitle(self, subtitle: Path) -> Path | None:
+        if not subtitle.parent.is_dir():
+            return None
+
+        videos = [p for p in subtitle.parent.iterdir() if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS]
+        subtitle_stem = subtitle.stem.lower()
+        exact = [video for video in videos if video.stem.lower() == subtitle_stem]
+        if exact:
+            return sorted(exact, key=lambda p: p.name.lower())[0]
+        return None
 
     def _choose_output(self) -> None:
         initial = self.output_file.get() or self._suggest_output_path(self.incorrect_file.get())
@@ -1026,13 +1111,26 @@ class AlassGui(tk.Tk):
             command.append("--disable-fps-guessing")
         return command
 
+    def _single_reference_path(self) -> str:
+        correct_subtitle = self.correct_subtitle_file.get().strip()
+        if correct_subtitle:
+            return correct_subtitle
+        return self.video_file.get().strip()
+
+    def _single_naming_reference_path(self) -> str:
+        video = self.video_file.get().strip()
+        if video:
+            return video
+        return self._single_reference_path()
+
     def _build_command(self) -> list[str]:
-        if self.single_output_mode.get() == "backup" and self.reference_file.get().strip() and self.incorrect_file.get().strip():
+        reference = self._single_reference_path()
+        if self.single_output_mode.get() == "backup" and reference and self.incorrect_file.get().strip():
             output = self._single_output_paths()[1]
         else:
             output = self.output_file.get().strip()
         return self._build_command_for(
-            self.reference_file.get().strip(),
+            reference,
             self.incorrect_file.get().strip(),
             output,
         )
@@ -1055,18 +1153,257 @@ class AlassGui(tk.Tk):
         markers = ["wrong charset encoding", "error while decoding subtitle from bytes to string"]
         return any(marker in output for marker in markers)
 
+    def _decode_subtitle_for_validation(self, path: Path, encoding: str) -> str:
+        data = path.read_bytes()
+        candidates = [encoding] if encoding and encoding != "auto" else ["utf-8-sig", *ENCODING_FALLBACKS]
+        last_error: UnicodeDecodeError | None = None
+        for candidate in candidates:
+            try:
+                return data.decode(candidate)
+            except UnicodeDecodeError as exc:
+                last_error = exc
+        if last_error is not None:
+            raise last_error
+        return data.decode("utf-8-sig")
+
+    def _validate_srt_file(self, path_text: str, encoding: str) -> str | None:
+        path = Path(path_text)
+        if path.suffix.lower() != ".srt" or not path.is_file():
+            return None
+
+        try:
+            text = self._decode_subtitle_for_validation(path, encoding)
+        except UnicodeDecodeError as exc:
+            return (
+                f"SRT titl se ne moze procitati: {path.name}\n"
+                f"Encoding '{encoding or 'auto'}' nije uspio na bajtu {exc.start}.\n"
+                "Probaj rucno odabrati Encoding titl ili spremi titl kao UTF-8."
+            )
+        except OSError as exc:
+            return f"SRT titl se ne moze otvoriti: {path}\n{exc}"
+
+        error = self._find_srt_structure_error(text)
+        if error is None:
+            return None
+
+        line_number, expected, found = error
+        context = self._format_line_context(text, line_number)
+        return (
+            f"SRT titl nije ispravan: {path.name}\n"
+            f"Linija {line_number}: ocekivan je {expected}, pronadeno je: {found!r}\n\n"
+            f"{context}\n\n"
+            "Popravi taj blok u titlu ili preuzmi drugi titl. Alass ne moze sinkronizirati SRT dok "
+            "svaki blok nema timestamp liniju oblika 00:00:01,000 --> 00:00:03,000."
+        )
+
+    def _repair_srt_preview(self, path_text: str, encoding: str) -> str | None:
+        path = Path(path_text)
+        if path.suffix.lower() != ".srt" or not path.is_file():
+            return None
+        try:
+            text = self._decode_subtitle_for_validation(path, encoding)
+        except (OSError, UnicodeDecodeError):
+            return None
+        repaired = self._repair_srt_text(text)
+        if repaired is None:
+            return None
+        repaired_text, summary = repaired
+        if not repaired_text.strip():
+            return None
+        return self._format_repair_summary(path, summary)
+
+    def _write_repaired_srt(self, path_text: str, encoding: str, repair_dir: Path) -> tuple[str, str] | None:
+        path = Path(path_text)
+        if path.suffix.lower() != ".srt" or not path.is_file():
+            return None
+        text = self._decode_subtitle_for_validation(path, encoding)
+        repaired = self._repair_srt_text(text)
+        if repaired is None:
+            return None
+        repaired_text, summary = repaired
+        if not repaired_text.strip():
+            return None
+
+        repair_dir.mkdir(parents=True, exist_ok=True)
+        repaired_path = repair_dir / f"{path.stem}.repaired{path.suffix}"
+        counter = 1
+        while repaired_path.exists():
+            repaired_path = repair_dir / f"{path.stem}.repaired.{counter}{path.suffix}"
+            counter += 1
+        repaired_path.write_text(repaired_text, encoding="utf-8", newline="\n")
+        return str(repaired_path), self._format_repair_summary(path, summary)
+
+    def _repair_srt_text(self, text: str) -> tuple[str, dict[str, int]] | None:
+        lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        blocks: list[list[str]] = []
+        current: list[str] = []
+        for line in lines:
+            if line.strip():
+                current.append(line)
+            elif current:
+                blocks.append(current)
+                current = []
+        if current:
+            blocks.append(current)
+
+        repaired_blocks: list[str] = []
+        summary = {
+            "kept": 0,
+            "dropped": 0,
+            "normalized_timestamps": 0,
+            "renumbered": 0,
+            "dropped_prefix_lines": 0,
+        }
+        next_index = 1
+
+        for block in blocks:
+            timestamp_index = None
+            timestamp = None
+            for index, line in enumerate(block):
+                timestamp = self._normalize_srt_timespan(line)
+                if timestamp is not None:
+                    timestamp_index = index
+                    break
+
+            if timestamp_index is None or timestamp is None:
+                summary["dropped"] += 1
+                continue
+
+            text_lines = [line.rstrip() for line in block[timestamp_index + 1 :] if line.strip()]
+            if not text_lines:
+                summary["dropped"] += 1
+                continue
+
+            if timestamp != block[timestamp_index].strip():
+                summary["normalized_timestamps"] += 1
+            original_index = block[0].lstrip("\ufeff").strip() if block else ""
+            if timestamp_index != 1 or not original_index.isdigit() or int(original_index) != next_index:
+                summary["renumbered"] += 1
+            if timestamp_index > 1:
+                summary["dropped_prefix_lines"] += timestamp_index - 1
+
+            repaired_blocks.append("\n".join([str(next_index), timestamp, *text_lines]))
+            summary["kept"] += 1
+            next_index += 1
+
+        if not repaired_blocks:
+            return None
+        return "\n\n".join(repaired_blocks) + "\n", summary
+
+    def _normalize_srt_timespan(self, line: str) -> str | None:
+        match = LOOSE_SRT_TIMESPAN_RE.match(line.strip())
+        if not match:
+            return None
+        start_time, start_ms, end_time, end_ms, suffix = match.groups()
+        start_ms = start_ms.ljust(3, "0")[:3]
+        end_ms = end_ms.ljust(3, "0")[:3]
+        suffix = suffix.rstrip()
+        return f"{start_time},{start_ms} --> {end_time},{end_ms}{suffix}"
+
+    def _format_repair_summary(self, path: Path, summary: dict[str, int]) -> str:
+        parts = [f"SRT repair: {path.name}", f"blokova sacuvano: {summary['kept']}"]
+        if summary["dropped"]:
+            parts.append(f"izbaceno bez timestampa: {summary['dropped']}")
+        if summary["normalized_timestamps"]:
+            parts.append(f"normaliziranih timestampova: {summary['normalized_timestamps']}")
+        if summary["renumbered"]:
+            parts.append(f"renumeriranih blokova: {summary['renumbered']}")
+        if summary["dropped_prefix_lines"]:
+            parts.append(f"izbacenih redaka prije timestampa: {summary['dropped_prefix_lines']}")
+        return " | ".join(parts)
+
+    def _find_srt_structure_error(self, text: str) -> tuple[int, str, str] | None:
+        lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        index = 0
+        total = len(lines)
+        while index < total:
+            while index < total and not lines[index].strip():
+                index += 1
+            if index >= total:
+                return None
+
+            first_line_index = index
+            first_line = lines[index].lstrip("\ufeff").strip()
+            if SRT_TIMESPAN_RE.match(first_line):
+                index += 1
+            elif first_line.isdigit():
+                index += 1
+                if index >= total or not SRT_TIMESPAN_RE.match(lines[index].strip()):
+                    found = lines[index].strip() if index < total else "kraj datoteke"
+                    return index + 1, "SubRip timestamp linija", found
+                index += 1
+            else:
+                return first_line_index + 1, "broj bloka ili SubRip timestamp linija", first_line
+
+            while index < total and lines[index].strip():
+                index += 1
+
+        return None
+
+    def _format_line_context(self, text: str, line_number: int) -> str:
+        lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        start = max(1, line_number - 3)
+        end = min(len(lines), line_number + 3)
+        context_lines = ["Kontekst:"]
+        for current in range(start, end + 1):
+            marker = ">" if current == line_number else " "
+            context_lines.append(f"{marker} {current}: {lines[current - 1]}")
+        return "\n".join(context_lines)
+
+    def _prepare_job_subtitles(
+        self,
+        iid: str | None,
+        command: list[str],
+        repair_dir: Path,
+    ) -> tuple[list[str], str | None]:
+        item = self.jobs.get(iid or "")
+        if not item:
+            return command, None
+
+        updated_command = list(command)
+        checks = [
+            ("incorrect", 2, str(item.get("encoding", "auto"))),
+        ]
+        reference = str(item.get("reference", ""))
+        if Path(reference).suffix.lower() == ".srt":
+            checks.append(("reference", 1, self.encoding_ref.get().strip() or "auto"))
+
+        for _kind, command_index, encoding in checks:
+            if command_index >= len(updated_command):
+                continue
+            subtitle_path = updated_command[command_index]
+            validation_error = self._validate_srt_file(subtitle_path, encoding)
+            if not validation_error:
+                continue
+            if not self.repair_srt.get():
+                return updated_command, validation_error
+
+            try:
+                repaired = self._write_repaired_srt(subtitle_path, encoding, repair_dir)
+            except (OSError, UnicodeDecodeError) as exc:
+                return updated_command, validation_error + f"\n\nAutomatski popravak nije uspio: {exc}"
+            if repaired is None:
+                return updated_command, validation_error + "\n\nAutomatski popravak nije uspio za ovaj titl."
+
+            repaired_path, repair_summary = repaired
+            updated_command[command_index] = repaired_path
+            self.log_queue.put(("log", repair_summary + "\n"))
+
+        return updated_command, None
+
     def _refresh_command_preview(self) -> None:
         self.command_preview.set(shlex.join(self._build_command()))
 
     def _validate(self) -> bool:
         required = [
             ("Alass program", self.alass_path.get()),
-            ("Referenca", self.reference_file.get()),
-            ("Neispravan titl", self.incorrect_file.get()),
+            (self._t("incorrect_subtitle"), self.incorrect_file.get()),
         ]
         if self.single_output_mode.get() != "backup":
-            required.append(("Izlazni titl", self.output_file.get()))
+            required.append((self._t("output_subtitle"), self.output_file.get()))
         missing = [name for name, value in required if not value.strip()]
+        if not self._single_reference_path():
+            missing.append(f"{self._t('video_file')} / {self._t('correct_subtitle')}")
         if missing:
             messagebox.showerror(APP_TITLE, "Nedostaje: " + ", ".join(missing))
             return False
@@ -1102,27 +1439,67 @@ class AlassGui(tk.Tk):
                 )
                 return False
 
+        reference_suffix = Path(self._single_reference_path()).suffix.lower()
+        if reference_suffix in VIDEO_EXTENSIONS:
+            missing_tools = []
+            if not self._tool_available(self.ffmpeg_path.get()):
+                missing_tools.append("ffmpeg")
+            if not self._tool_available(self.ffprobe_path.get()):
+                missing_tools.append("ffprobe")
+            if missing_tools:
+                messagebox.showerror(
+                    APP_TITLE,
+                    "Za video referencu nedostaje: "
+                    + ", ".join(missing_tools)
+                    + ".\n\nDodaj alate u bin/ folder ili upisi pune putanje u FFmpeg polja.",
+                )
+                return False
+
         input_suffix = Path(self.incorrect_file.get()).suffix.lower()
         output_path = self._single_output_paths()[0] if self.single_output_mode.get() == "backup" else self.output_file.get()
         output_suffix = Path(output_path).suffix.lower()
         if input_suffix in SUBTITLE_EXTENSIONS and output_suffix != input_suffix:
-            return messagebox.askyesno(
+            if not messagebox.askyesno(
                 APP_TITLE,
                 "Alass ne konvertira format titla. Izlaz obicno mora imati isti nastavak kao ulazni titl.\n\nNastaviti?",
-            )
+            ):
+                return False
+        subtitle_checks = [
+            (self.incorrect_file.get().strip(), self.encoding_inc.get().strip() or "auto"),
+        ]
+        reference = self._single_reference_path()
+        if Path(reference).suffix.lower() == ".srt":
+            subtitle_checks.append((reference, self.encoding_ref.get().strip() or "auto"))
+        for subtitle_path, encoding in subtitle_checks:
+            validation_error = self._validate_srt_file(subtitle_path, encoding)
+            if validation_error:
+                if self.repair_srt.get():
+                    repair_summary = self._repair_srt_preview(subtitle_path, encoding)
+                    if repair_summary:
+                        continue
+                    validation_error += "\n\nAutomatski popravak nije uspio za ovaj titl."
+                messagebox.showerror(APP_TITLE, validation_error)
+                return False
         return True
 
     def _validate_common_options(self) -> bool:
-        old_values = (self.reference_file.get(), self.incorrect_file.get(), self.output_file.get())
-        self.reference_file.set("dummy.mp4")
+        old_values = (
+            self.video_file.get(),
+            self.correct_subtitle_file.get(),
+            self.incorrect_file.get(),
+            self.output_file.get(),
+        )
+        self.video_file.set("dummy.mp4")
+        self.correct_subtitle_file.set("")
         self.incorrect_file.set("dummy.srt")
         self.output_file.set("dummy.srt")
         try:
             return self._validate()
         finally:
-            self.reference_file.set(old_values[0])
-            self.incorrect_file.set(old_values[1])
-            self.output_file.set(old_values[2])
+            self.video_file.set(old_values[0])
+            self.correct_subtitle_file.set(old_values[1])
+            self.incorrect_file.set(old_values[2])
+            self.output_file.set(old_values[3])
 
     def _run_alass(self) -> None:
         if self.process is not None:
@@ -1131,15 +1508,18 @@ class AlassGui(tk.Tk):
             return
 
         final_output, temp_output = self._single_output_paths()
+        reference = self._single_reference_path()
         command = self._build_command_for(
-            self.reference_file.get().strip(),
+            reference,
             self.incorrect_file.get().strip(),
             temp_output,
         )
         self.jobs = {
             "__single__": {
                 "output_mode": self.single_output_mode.get(),
-                "reference": self.reference_file.get().strip(),
+                "reference": reference,
+                "video": self.video_file.get().strip(),
+                "correct_subtitle": self.correct_subtitle_file.get().strip(),
                 "incorrect": self.incorrect_file.get().strip(),
                 "final_output": final_output,
                 "temp_output": temp_output,
@@ -1292,7 +1672,7 @@ class AlassGui(tk.Tk):
 
     def _single_output_paths(self) -> tuple[str, str]:
         incorrect = Path(self.incorrect_file.get().strip())
-        reference = Path(self.reference_file.get().strip())
+        reference = Path(self._single_naming_reference_path())
         if self.single_output_mode.get() == "backup":
             final_output = reference.with_suffix(incorrect.suffix)
             temp_output = self._unique_path(final_output.with_name(f"{final_output.stem}.alass_tmp{final_output.suffix}"))
@@ -1327,7 +1707,9 @@ class AlassGui(tk.Tk):
         failures = 0
         stopped = False
         total = len(commands)
+        repair_tmp = tempfile.TemporaryDirectory(prefix="alass_gui_srt_repair_")
         try:
+            repair_dir = Path(repair_tmp.name)
             for index, (iid, command) in enumerate(commands, start=1):
                 if self.stop_requested:
                     self.log_queue.put(("log", "\nBatch je prekinut.\n"))
@@ -1343,6 +1725,16 @@ class AlassGui(tk.Tk):
                     self.log_queue.put(("percent", "\t0"))
                 self._mark_job(iid, status="Radi")
                 self.log_queue.put(("log", f"Radim: {self._job_display_name(iid, command)}\n"))
+                command, validation_error = self._prepare_job_subtitles(iid, command, repair_dir)
+                if validation_error:
+                    failures += 1
+                    self._mark_job(iid, status="Greska SRT")
+                    self._record_job_result(iid, "Greska SRT")
+                    self.log_queue.put(("log", validation_error + "\n\n"))
+                    if iid is not None and iid != "__single__":
+                        self.log_queue.put(("batch_status", f"{iid}\tGreska SRT"))
+                        self.log_queue.put(("batch_total", f"{(index / total) * 100:.1f}"))
+                    continue
                 return_code, output = self._run_process(command, env, iid)
                 if return_code != 0 and self._should_retry_encoding(command, output):
                     for encoding in ENCODING_FALLBACKS:
@@ -1392,6 +1784,8 @@ class AlassGui(tk.Tk):
             self.log_queue.put(("error", f"Program nije pronađen: {exc}\n"))
         except Exception as exc:  # noqa: BLE001 - GUI should surface unexpected launcher failures.
             self.log_queue.put(("error", f"Greska pri pokretanju: {exc}\n"))
+        finally:
+            repair_tmp.cleanup()
 
     def _post_process_output(self, iid: str) -> bool:
         item = self.jobs.get(iid) or self.batch_items.get(iid)
@@ -1540,7 +1934,14 @@ class AlassGui(tk.Tk):
             if not line or self._extract_percent(line) is not None or self._is_progress_record(line):
                 continue
             lines.append(line)
-        return "\n".join(lines[-8:]) if lines else "Nema dodatnih detalja."
+        compact = "\n".join(lines[-8:]) if lines else "Nema dodatnih detalja."
+        if "expected SubRip timespan line" in output:
+            compact += (
+                "\n\nSavjet: SRT datoteka ima pokvaren blok. Otvori titl u tekst editoru i provjeri liniju "
+                "koju alass navodi; nakon broja bloka mora ici timestamp linija oblika "
+                "00:00:01,000 --> 00:00:03,000."
+            )
+        return compact
 
     def _extract_percent(self, text: str) -> float | None:
         matches = PERCENT_RE.findall(text)
@@ -1646,10 +2047,12 @@ What alass does
 Alass synchronizes an incorrect subtitle against a reference video or a correct reference subtitle. It can fix a constant offset, cuts caused by different releases, and FPS-related timing differences.
 
 Single file workflow
-1. Choose a reference video or a correct reference subtitle.
-2. Choose the incorrect subtitle.
-3. Choose how subtitles should be saved.
-4. Click Start sync.
+1. In Video, choose the video file for this subtitle. The video name does not have to match the subtitle name.
+2. If you already have a synced subtitle for the same video, choose it in Correct subtitle. When this field is filled, alass uses it as the timing reference instead of the video audio.
+3. In Subtitle to fix, choose the subtitle/translation that needs syncing.
+4. If you choose the subtitle first and the video has the same name in the same folder, the GUI fills the Video field automatically. If no same-name video exists, it offers manual video selection.
+5. Choose how subtitles should be saved.
+6. Click Start sync.
 
 Folder workflow
 1. Open the Folder tab and load a folder.
@@ -1700,11 +2103,13 @@ GUI je vizualni omotac oko tog programa. Portable paket ukljucuje lokalni `bin/a
 Alass sinkronizira neispravan titl prema referentnom videu ili referentnom titlu. Moze ispraviti stalni vremenski pomak, rezove zbog reklama ili drugacije verzije filma, te razlike u FPS-u.
 
 Osnovni postupak
-1. U polje Referenca odaberi video datoteku ili referentni titl koji je vremenski tocno sinkroniziran.
-2. U polje Neispravan titl odaberi titl koji zelis ispraviti.
-3. Provjeri Izlazni titl. Nastavak izlazne datoteke treba biti isti kao nastavak neispravnog titla jer alass ne konvertira format.
-4. Odaberi nacin spremanja prijevoda. Mozes ostaviti original i napraviti ime.synced.ext, ili premjestiti original u folder "original prijevod" i novi titl nazvati isto kao video datoteku.
-5. Klikni Pokreni sinkronizaciju.
+1. U polju Video odaberi video datoteku za taj prijevod. Video i prijevod ne moraju imati isto ime.
+2. Ako imas vec sinkroniziran prijevod za isti video, odaberi ga u polju Tocni prijevod. Kad je ovo polje popunjeno, alass koristi tocni prijevod kao vremensku referencu umjesto zvuka iz videa.
+3. U polju Prijevod za popraviti odaberi titl/prijevod koji zelis ispraviti.
+4. Ako prvo odaberes prijevod, a video istog imena postoji u istom folderu, GUI ce automatski popuniti polje Video. Ako takav video ne postoji, ponudit ce rucni izbor videa.
+5. Provjeri Izlazni titl. Nastavak izlazne datoteke treba biti isti kao nastavak neispravnog titla jer alass ne konvertira format.
+6. Odaberi nacin spremanja prijevoda. Mozes ostaviti original i napraviti ime.synced.ext, ili premjestiti original u folder "original prijevod" i novi titl nazvati isto kao video datoteku.
+7. Klikni Pokreni sinkronizaciju.
 
 Rad s cijelim folderom
 1. Otvori tab Folder i klikni Ucitaj folder.

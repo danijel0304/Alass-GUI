@@ -1,6 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
+set "PATH=%CD%\bin;%PATH%"
 python alass_gui.py
 if errorlevel 1 (
   echo.
