@@ -1,0 +1,138 @@
+name: Build Windows Linux DEB AppImage
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Download code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          if (Test-Path requirements.txt) { pip install -r requirements.txt }
+
+      - name: Build Windows EXE
+        shell: pwsh
+        run: |
+          pyinstaller --onefile --windowed --name Alass-GUI alass_gui.py
+
+      - name: Upload Windows EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: Alass-GUI-Windows-EXE
+          path: dist/Alass-GUI.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y fuse libfuse2
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Build Linux binary
+        run: |
+          chmod +x bin/alass || true
+          pyinstaller --onefile --windowed --name alass-gui alass_gui.py
+
+      - name: Build DEB package
+        run: |
+          mkdir -p package/DEBIAN
+          mkdir -p package/usr/bin
+          mkdir -p package/usr/share/applications
+
+          cp dist/alass-gui package/usr/bin/alass-gui
+          chmod +x package/usr/bin/alass-gui
+
+          cat > package/DEBIAN/control <<EOF
+          Package: alass-gui
+          Version: 1.0.0
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Danijel
+          Description: Graphical interface for alass subtitle synchronization tool
+          EOF
+
+          cat > package/usr/share/applications/alass-gui.desktop <<EOF
+          [Desktop Entry]
+          Name=Alass GUI
+          Comment=Subtitle synchronization tool
+          Exec=alass-gui
+          Terminal=false
+          Type=Application
+          Categories=AudioVideo;Utility;
+          EOF
+
+          dpkg-deb --build package alass-gui_1.0.0_amd64.deb
+
+      - name: Build AppImage
+        run: |
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+
+          cp dist/alass-gui AppDir/usr/bin/alass-gui
+          chmod +x AppDir/usr/bin/alass-gui
+
+          cat > AppDir/AppRun <<EOF
+          #!/bin/bash
+          HERE="$(dirname "$(readlink -f "$0")")"
+          exec "$HERE/usr/bin/alass-gui" "$@"
+          EOF
+          chmod +x AppDir/AppRun
+
+          cat > AppDir/alass-gui.desktop <<EOF
+          [Desktop Entry]
+          Name=Alass GUI
+          Comment=Subtitle synchronization tool
+          Exec=alass-gui
+          Icon=alass-gui
+          Terminal=false
+          Type=Application
+          Categories=AudioVideo;Utility;
+          EOF
+
+          cp AppDir/alass-gui.desktop AppDir/usr/share/applications/alass-gui.desktop
+
+          wget -O appimagetool.AppImage https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool.AppImage
+          ARCH=x86_64 ./appimagetool.AppImage AppDir Alass-GUI-x86_64.AppImage
+
+      - name: Upload Linux DEB
+        uses: actions/upload-artifact@v4
+        with:
+          name: Alass-GUI-Linux-DEB
+          path: alass-gui_1.0.0_amd64.deb
+
+      - name: Upload Linux AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: Alass-GUI-Linux-AppImage
+          path: Alass-GUI-x86_64.AppImage
