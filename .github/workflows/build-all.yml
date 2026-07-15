@@ -97,6 +97,7 @@ jobs:
           dpkg-deb --build package alass-gui_1.0.0_amd64.deb
 
       - name: Build AppImage
+        continue-on-error: true
         run: |
           mkdir -p AppDir/usr/bin
           mkdir -p AppDir/usr/share/applications
@@ -126,6 +127,12 @@ jobs:
           wget -O appimagetool.AppImage https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool.AppImage
           ARCH=x86_64 ./appimagetool.AppImage AppDir Alass-GUI-x86_64.AppImage
+
+      - name: Upload Linux binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: Alass-GUI-Linux-Binary
+          path: dist/alass-gui
 
       - name: Upload Linux DEB
         uses: actions/upload-artifact@v4
