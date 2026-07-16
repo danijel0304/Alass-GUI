@@ -1,4 +1,4 @@
-name: Build Windows EXE Linux DEB AppImage
+name: Build Windows EXE and Linux packages
 
 on:
   push:
@@ -55,18 +55,33 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y fuse libfuse2
+          sudo apt install -y fuse libfuse2 wget
           python -m pip install --upgrade pip
           pip install pyinstaller
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
+      - name: Set package version
+        id: package
+        run: |
+          if [[ "$GITHUB_REF_NAME" == v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build Linux binary
         run: |
+          mkdir -p packages
           chmod +x bin/alass || true
           pyinstaller --onefile --windowed --name alass-gui alass_gui.py
 
+      - name: Build TAR.GZ package
+        run: |
+          tar -czf packages/Alass-GUI-linux-x86_64.tar.gz -C dist alass-gui
+
       - name: Build DEB package
         run: |
+          VERSION="${{ steps.package.outputs.version }}"
           mkdir -p package/DEBIAN
           mkdir -p package/usr/bin
           mkdir -p package/usr/share/applications
@@ -76,7 +91,7 @@ jobs:
 
           cat > package/DEBIAN/control <<EOF
           Package: alass-gui
-          Version: 1.0.0
+          Version: ${VERSION}
           Section: utils
           Priority: optional
           Architecture: amd64
@@ -94,13 +109,13 @@ jobs:
           Categories=Utility;
           EOF
 
-          dpkg-deb --build package alass-gui_1.0.0_amd64.deb
+          dpkg-deb --build package "packages/alass-gui_${VERSION}_amd64.deb"
 
       - name: Build AppImage
-        continue-on-error: true
         run: |
           mkdir -p AppDir/usr/bin
           mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/scalable/apps
 
           cp dist/alass-gui AppDir/usr/bin/alass-gui
           chmod +x AppDir/usr/bin/alass-gui
@@ -117,34 +132,34 @@ jobs:
           Name=Alass GUI
           Comment=Subtitle synchronization tool
           Exec=alass-gui
+          Icon=alass-gui
           Terminal=false
           Type=Application
           Categories=Utility;
           EOF
 
           cp AppDir/alass-gui.desktop AppDir/usr/share/applications/alass-gui.desktop
+          cat > AppDir/alass-gui.svg <<'EOF'
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+            <rect width="128" height="128" rx="24" fill="#1f2937"/>
+            <path d="M29 37h70a12 12 0 0 1 12 12v30a12 12 0 0 1-12 12H29a12 12 0 0 1-12-12V49a12 12 0 0 1 12-12z" fill="#f8fafc"/>
+            <path d="M34 59h31v8H34zm0 16h45v8H34zm54 0h15v8H88z" fill="#1f2937"/>
+            <path d="M79 51l17 13-17 13z" fill="#2563eb"/>
+          </svg>
+          EOF
+          cp AppDir/alass-gui.svg AppDir/usr/share/icons/hicolor/scalable/apps/alass-gui.svg
 
           wget -O appimagetool.AppImage https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool.AppImage
-          ARCH=x86_64 ./appimagetool.AppImage AppDir Alass-GUI-x86_64.AppImage
+          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 ./appimagetool.AppImage AppDir packages/Alass-GUI-x86_64.AppImage
 
-      - name: Upload Linux binary
+      - name: Upload Linux packages
         uses: actions/upload-artifact@v4
         with:
-          name: Alass-GUI-Linux-Binary
-          path: dist/alass-gui
-
-      - name: Upload Linux DEB
-        uses: actions/upload-artifact@v4
-        with:
-          name: Alass-GUI-Linux-DEB
-          path: alass-gui_1.0.0_amd64.deb
-
-      - name: Upload Linux AppImage
-        uses: actions/upload-artifact@v4
-        with:
-          name: Alass-GUI-Linux-AppImage
-          path: Alass-GUI-x86_64.AppImage
+          name: Alass-GUI-Linux-Packages
+          path: |
+            dist/alass-gui
+            packages/*
 
   release:
     name: Publish GitHub release
