@@ -8,6 +8,12 @@
 
 **What alass does:** alass compares an incorrect subtitle with a reference video or a correctly synced subtitle, then calculates the timing shifts needed to align it. It can fix simple delays, FPS drift, and release differences with cuts or added scenes.
 
+## Screenshot
+
+### Main window
+
+![Main window](docs/screenshots/main-window.png)
+
 ### ✅ Features
 
 - **Single subtitle sync**
