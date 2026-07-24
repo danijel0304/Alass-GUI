@@ -17,6 +17,7 @@ import threading
 import tkinter as tk
 import urllib.error
 import urllib.request
+import webbrowser
 import zipfile
 import json
 from pathlib import Path
@@ -24,7 +25,12 @@ from tkinter import filedialog, messagebox, ttk
 
 
 APP_TITLE = "Alass GUI"
+APP_VERSION = "1.0.4"
 APP_DIR = Path(__file__).resolve().parent
+GITHUB_REPO = "danijel0304/Alass-GUI"
+APP_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+APP_RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
+PAYPAL_DONATE_URL = "https://www.paypal.com/paypalme/danijel0304"
 ALASS_RELEASE_API = "https://api.github.com/repos/kaegi/alass/releases/latest"
 ALASS_RELEASES_URL = "https://github.com/kaegi/alass/releases"
 SUBTITLE_EXTENSIONS = (".srt", ".ssa", ".ass", ".idx", ".sub")
@@ -54,7 +60,9 @@ TEXT = {
         "tab_folder": "Folder",
         "tab_help": "Help",
         "language": "Language",
-        "check_updates": "Check updates",
+        "check_updates": "Update alass",
+        "check_app_updates": "Program update",
+        "donate": "Donate",
         "files": "Files",
         "alass_program": "Alass program",
         "video_file": "Video",
@@ -107,6 +115,9 @@ TEXT = {
         "ready": "Ready",
         "checking_updates": "Checking updates...",
         "latest_version": "You are using the latest version of the program",
+        "update_failed": "I could not check for a new program version. Check the internet connection and try again.",
+        "update_current": "You are using the latest program version ({version}).",
+        "update_available": "A new Alass GUI version is available.\n\nCurrent version: {current}\nNew version: {latest}\n\nOpen the download page?",
         "current_subtitle": "Current subtitle: 0%",
         "total": "Total: 0%",
     },
@@ -115,7 +126,9 @@ TEXT = {
         "tab_folder": "Folder",
         "tab_help": "Help",
         "language": "Jezik",
-        "check_updates": "Provjeri update",
+        "check_updates": "Update alass",
+        "check_app_updates": "Update programa",
+        "donate": "Donacija",
         "files": "Datoteke",
         "alass_program": "Alass program",
         "video_file": "Video",
@@ -168,6 +181,9 @@ TEXT = {
         "ready": "Spremno",
         "checking_updates": "Provjeravam update...",
         "latest_version": "Koristite najnoviju verziju programa",
+        "update_failed": "Nisam uspio provjeriti novu verziju programa. Provjerite internet vezu i pokusajte ponovno.",
+        "update_current": "Koristite najnoviju verziju programa ({version}).",
+        "update_available": "Dostupna je nova verzija programa Alass GUI.\n\nTrenutna verzija: {current}\nNova verzija: {latest}\n\nOtvoriti stranicu za preuzimanje?",
         "current_subtitle": "Trenutni titl: 0%",
         "total": "Ukupno: 0%",
     },
@@ -177,7 +193,7 @@ TEXT = {
 class AlassGui(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title(APP_TITLE)
+        self.title(f"{APP_TITLE} v{APP_VERSION}")
         self.minsize(760, 520)
 
         self.log_queue: queue.Queue[tuple[str, str | None]] = queue.Queue()
@@ -256,6 +272,65 @@ class AlassGui(tk.Tk):
         if path.parent != Path(".") or path.is_absolute():
             return path.is_file()
         return shutil.which(tool) is not None
+
+    def _open_donate(self) -> None:
+        webbrowser.open(PAYPAL_DONATE_URL, new=2)
+
+    def _check_app_updates(self) -> None:
+        self.status.set(self._t("checking_updates"))
+        self.app_update_button.configure(state="disabled")
+        threading.Thread(target=self._app_update_worker, daemon=True).start()
+
+    def _app_update_worker(self) -> None:
+        release = None
+        error = None
+        try:
+            request = urllib.request.Request(
+                APP_RELEASE_API,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "User-Agent": f"Alass-GUI/{APP_VERSION}",
+                },
+            )
+            with urllib.request.urlopen(request, timeout=10) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            if not data.get("draft") and not data.get("prerelease"):
+                release = {
+                    "tag": str(data.get("tag_name", "")).strip(),
+                    "url": data.get("html_url") or APP_RELEASES_URL,
+                }
+        except (OSError, TimeoutError, urllib.error.URLError, ValueError) as exc:
+            error = exc
+
+        try:
+            self.after(0, lambda: self._handle_app_update_result(release, error))
+        except tk.TclError:
+            pass
+
+    def _handle_app_update_result(self, release: dict | None, error: Exception | None) -> None:
+        self.app_update_button.configure(state="normal")
+        self.status.set(self._t("ready"))
+        if error is not None or not release or not release.get("tag"):
+            messagebox.showwarning(APP_TITLE, self._t("update_failed"))
+            return
+
+        latest_tag = str(release["tag"])
+        if not self._is_newer_version(latest_tag, APP_VERSION):
+            messagebox.showinfo(APP_TITLE, self._t("update_current").format(version=APP_VERSION))
+            return
+
+        message = self._t("update_available").format(current=APP_VERSION, latest=latest_tag)
+        if messagebox.askyesno(APP_TITLE, message):
+            webbrowser.open(str(release["url"]), new=2)
+
+    def _version_parts(self, value: str) -> tuple[int, int, int]:
+        parts = [int(part) for part in re.findall(r"\d+", str(value).lstrip("v"))[:3]]
+        while len(parts) < 3:
+            parts.append(0)
+        return tuple(parts)
+
+    def _is_newer_version(self, latest: str, current: str) -> bool:
+        return self._version_parts(latest) > self._version_parts(current)
 
     def _check_for_updates(self) -> None:
         if self.process is not None:
@@ -427,9 +502,13 @@ class AlassGui(tk.Tk):
         toolbar = ttk.Frame(self, padding=(12, 8))
         toolbar.grid(row=0, column=0, sticky="ew")
         toolbar.columnconfigure(0, weight=1)
+        ttk.Label(toolbar, text=f"{APP_TITLE} v{APP_VERSION}").grid(row=0, column=0, sticky="w", padx=(0, 16))
+        self.app_update_button = ttk.Button(toolbar, text=self._t("check_app_updates"), command=self._check_app_updates)
+        self.app_update_button.grid(row=0, column=1, sticky="e", padx=(0, 8))
+        ttk.Button(toolbar, text=self._t("donate"), command=self._open_donate).grid(row=0, column=2, sticky="e", padx=(0, 16))
         self.update_button = ttk.Button(toolbar, text=self._t("check_updates"), command=self._check_for_updates)
-        self.update_button.grid(row=0, column=1, sticky="e", padx=(0, 16))
-        ttk.Label(toolbar, text=self._t("language")).grid(row=0, column=2, sticky="e", padx=(0, 8))
+        self.update_button.grid(row=0, column=3, sticky="e", padx=(0, 16))
+        ttk.Label(toolbar, text=self._t("language")).grid(row=0, column=4, sticky="e", padx=(0, 8))
         language_combo = ttk.Combobox(
             toolbar,
             textvariable=self.language,
@@ -437,7 +516,7 @@ class AlassGui(tk.Tk):
             width=10,
             state="readonly",
         )
-        language_combo.grid(row=0, column=3, sticky="e")
+        language_combo.grid(row=0, column=5, sticky="e")
         language_combo.bind("<<ComboboxSelected>>", lambda _event: self._change_language())
 
         tabs = ttk.Notebook(self)
