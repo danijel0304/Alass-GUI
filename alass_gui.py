@@ -23,9 +23,11 @@ import json
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+from self_updater import SelfUpdater
+
 
 APP_TITLE = "Alass GUI"
-APP_VERSION = "1.0.4"
+APP_VERSION = "1.0.5"
 APP_DIR = Path(__file__).resolve().parent
 GITHUB_REPO = "danijel0304/Alass-GUI"
 APP_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -277,51 +279,17 @@ class AlassGui(tk.Tk):
         webbrowser.open(PAYPAL_DONATE_URL, new=2)
 
     def _check_app_updates(self) -> None:
-        self.status.set(self._t("checking_updates"))
-        self.app_update_button.configure(state="disabled")
-        threading.Thread(target=self._app_update_worker, daemon=True).start()
-
-    def _app_update_worker(self) -> None:
-        release = None
-        error = None
-        try:
-            request = urllib.request.Request(
-                APP_RELEASE_API,
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "User-Agent": f"Alass-GUI/{APP_VERSION}",
-                },
-            )
-            with urllib.request.urlopen(request, timeout=10) as response:
-                data = json.loads(response.read().decode("utf-8"))
-            if not data.get("draft") and not data.get("prerelease"):
-                release = {
-                    "tag": str(data.get("tag_name", "")).strip(),
-                    "url": data.get("html_url") or APP_RELEASES_URL,
-                }
-        except (OSError, TimeoutError, urllib.error.URLError, ValueError) as exc:
-            error = exc
-
-        try:
-            self.after(0, lambda: self._handle_app_update_result(release, error))
-        except tk.TclError:
-            pass
-
-    def _handle_app_update_result(self, release: dict | None, error: Exception | None) -> None:
-        self.app_update_button.configure(state="normal")
-        self.status.set(self._t("ready"))
-        if error is not None or not release or not release.get("tag"):
-            messagebox.showwarning(APP_TITLE, self._t("update_failed"))
-            return
-
-        latest_tag = str(release["tag"])
-        if not self._is_newer_version(latest_tag, APP_VERSION):
-            messagebox.showinfo(APP_TITLE, self._t("update_current").format(version=APP_VERSION))
-            return
-
-        message = self._t("update_available").format(current=APP_VERSION, latest=latest_tag)
-        if messagebox.askyesno(APP_TITLE, message):
-            webbrowser.open(str(release["url"]), new=2)
+        SelfUpdater(
+            self,
+            APP_TITLE,
+            APP_VERSION,
+            GITHUB_REPO,
+            binary_names=("Alass-GUI.exe", "Alass-GUI", "alass-gui"),
+            linux_command="alass-gui",
+            status_callback=self.status.set,
+            button_getter=lambda: self.app_update_button,
+            language_getter=lambda: self.language.get(),
+        ).check()
 
     def _version_parts(self, value: str) -> tuple[int, int, int]:
         parts = [int(part) for part in re.findall(r"\d+", str(value).lstrip("v"))[:3]]
