@@ -27,7 +27,7 @@ jobs:
       - name: Build Linux executable
         run: |
           chmod +x bin/alass || true
-          pyinstaller --onefile --windowed --name Alass-GUI-Linux alass_gui.py
+          pyinstaller --onefile --windowed --icon assets/alass-gui.ico --name Alass-GUI-Linux alass_gui.py
 
       - name: Upload Linux executable
         uses: actions/upload-artifact@v4

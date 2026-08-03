@@ -27,7 +27,7 @@ jobs:
       - name: Build Linux binary
         run: |
           chmod +x bin/alass || true
-          pyinstaller --onefile --windowed --name alass-gui alass_gui.py
+          pyinstaller --onefile --windowed --icon assets/alass-gui.ico --name alass-gui alass_gui.py
 
       - name: Create DEB structure
         run: |
