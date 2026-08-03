@@ -34,9 +34,11 @@ jobs:
           mkdir -p package/DEBIAN
           mkdir -p package/usr/bin
           mkdir -p package/usr/share/applications
+          mkdir -p package/usr/share/icons/hicolor/scalable/apps
 
           cp dist/alass-gui package/usr/bin/alass-gui
           chmod +x package/usr/bin/alass-gui
+          cp assets/alass-gui.svg package/usr/share/icons/hicolor/scalable/apps/alass-gui.svg
 
           cat > package/DEBIAN/control <<EOF
           Package: alass-gui
@@ -55,6 +57,7 @@ jobs:
           Exec=alass-gui
           Terminal=false
           Type=Application
+          Icon=alass-gui
           Categories=AudioVideo;Utility;
           EOF
 

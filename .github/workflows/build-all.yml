@@ -32,7 +32,7 @@ jobs:
       - name: Build Windows EXE
         shell: pwsh
         run: |
-          pyinstaller --onefile --windowed --name Alass-GUI alass_gui.py
+          pyinstaller --onefile --windowed --icon assets/alass-gui.ico --name Alass-GUI alass_gui.py
 
       - name: Upload Windows EXE
         uses: actions/upload-artifact@v4
@@ -85,9 +85,11 @@ jobs:
           mkdir -p package/DEBIAN
           mkdir -p package/usr/bin
           mkdir -p package/usr/share/applications
+          mkdir -p package/usr/share/icons/hicolor/scalable/apps
 
           cp dist/alass-gui package/usr/bin/alass-gui
           chmod +x package/usr/bin/alass-gui
+          cp assets/alass-gui.svg package/usr/share/icons/hicolor/scalable/apps/alass-gui.svg
 
           cat > package/DEBIAN/control <<EOF
           Package: alass-gui
@@ -106,6 +108,7 @@ jobs:
           Exec=alass-gui
           Terminal=false
           Type=Application
+          Icon=alass-gui
           Categories=Utility;
           EOF
 
@@ -139,15 +142,8 @@ jobs:
           EOF
 
           cp AppDir/alass-gui.desktop AppDir/usr/share/applications/alass-gui.desktop
-          cat > AppDir/alass-gui.svg <<'EOF'
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-            <rect width="128" height="128" rx="24" fill="#1f2937"/>
-            <path d="M29 37h70a12 12 0 0 1 12 12v30a12 12 0 0 1-12 12H29a12 12 0 0 1-12-12V49a12 12 0 0 1 12-12z" fill="#f8fafc"/>
-            <path d="M34 59h31v8H34zm0 16h45v8H34zm54 0h15v8H88z" fill="#1f2937"/>
-            <path d="M79 51l17 13-17 13z" fill="#2563eb"/>
-          </svg>
-          EOF
-          cp AppDir/alass-gui.svg AppDir/usr/share/icons/hicolor/scalable/apps/alass-gui.svg
+          cp assets/alass-gui.svg AppDir/alass-gui.svg
+          cp assets/alass-gui.svg AppDir/usr/share/icons/hicolor/scalable/apps/alass-gui.svg
 
           wget -O appimagetool.AppImage https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool.AppImage

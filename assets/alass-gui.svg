@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Alass GUI">
+  <defs><linearGradient id="a" x1="23" y1="19" x2="229" y2="239" gradientUnits="userSpaceOnUse"><stop stop-color="#c7a8ff"/><stop offset=".45" stop-color="#7c50d7"/><stop offset="1" stop-color="#292166"/></linearGradient></defs>
+  <rect width="256" height="256" rx="58" fill="url(#a)"/><rect x="41" y="58" width="174" height="121" rx="28" fill="#fffaff"/><path d="M73 97h70M73 128h51" stroke="#3d276d" stroke-width="13" stroke-linecap="round"/>
+  <circle cx="169" cy="128" r="32" fill="#f8bf52"/><path d="M153 128h31m-14-15 15 15-15 15" fill="none" stroke="#38215e" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/><path d="M88 202h80" stroke="#eee6ff" stroke-width="13" stroke-linecap="round"/>
+</svg>
