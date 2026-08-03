@@ -27,7 +27,7 @@ from self_updater import SelfUpdater
 
 
 APP_TITLE = "Alass GUI"
-APP_VERSION = "1.0.5"
+APP_VERSION = "1.0.7"
 APP_DIR = Path(__file__).resolve().parent
 GITHUB_REPO = "danijel0304/Alass-GUI"
 APP_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -249,6 +249,7 @@ class AlassGui(tk.Tk):
         self._bind_updates()
         self._refresh_command_preview()
         self.after(100, self._drain_log_queue)
+        self.after(1200, lambda: self._check_app_updates(silent=True))
 
     def _find_executable(self) -> str:
         candidates = ["alass.exe", "alass"] if os.name == "nt" else ["alass", "alass.exe"]
@@ -278,7 +279,7 @@ class AlassGui(tk.Tk):
     def _open_donate(self) -> None:
         webbrowser.open(PAYPAL_DONATE_URL, new=2)
 
-    def _check_app_updates(self) -> None:
+    def _check_app_updates(self, *, silent: bool = False) -> None:
         SelfUpdater(
             self,
             APP_TITLE,
@@ -289,7 +290,7 @@ class AlassGui(tk.Tk):
             status_callback=self.status.set,
             button_getter=lambda: self.app_update_button,
             language_getter=lambda: self.language.get(),
-        ).check()
+        ).check(show_current=not silent, show_errors=not silent)
 
     def _version_parts(self, value: str) -> tuple[int, int, int]:
         parts = [int(part) for part in re.findall(r"\d+", str(value).lstrip("v"))[:3]]
