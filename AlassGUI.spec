@@ -5,7 +5,10 @@ a = Analysis(
     ['alass_gui.py'],
     pathex=[],
     binaries=[('bin/alass', 'bin')],
-    datas=[],
+    datas=[
+        ('assets/alass-gui.ico', 'assets'),
+        ('assets/alass-gui.png', 'assets'),
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

@@ -27,8 +27,46 @@ from self_updater import SelfUpdater
 
 
 APP_TITLE = "Alass GUI"
-APP_VERSION = "1.0.8"
+APP_VERSION = "1.0.9"
 APP_DIR = Path(__file__).resolve().parent
+
+
+def set_window_icon(window: tk.Tk) -> None:
+    """Use the branded icon for both the window title bar and task switcher."""
+    icon_png = APP_DIR / "assets" / "alass-gui.png"
+    icon_ico = APP_DIR / "assets" / "alass-gui.ico"
+    try:
+        image = tk.PhotoImage(file=str(icon_png))
+        window.iconphoto(True, image)
+        window._window_icon_image = image
+    except tk.TclError:
+        pass
+    if os.name == "nt":
+        try:
+            window.iconbitmap(default=str(icon_ico))
+        except tk.TclError:
+            pass
+
+
+class StartupSplash(tk.Tk):
+    def __init__(self) -> None:
+        super().__init__()
+        self.configure(bg="#101827")
+        self.overrideredirect(True)
+        set_window_icon(self)
+        card = tk.Frame(self, bg="#162033", highlightbackground="#31415b", highlightthickness=1)
+        card.pack(fill=tk.BOTH, expand=True)
+        image = tk.PhotoImage(file=str(APP_DIR / "assets" / "alass-gui.png"))
+        self._image = image.subsample(2, 2)
+        tk.Label(card, image=self._image, bg="#162033").pack(padx=28, pady=(24, 8))
+        tk.Label(card, text=APP_TITLE, bg="#162033", fg="#f8fafc", font=("Segoe UI", 18, "bold")).pack()
+        tk.Label(card, text="Pokrećem aplikaciju…", bg="#162033", fg="#b5c3d7", font=("Segoe UI", 10)).pack(pady=(6, 22))
+        self.update_idletasks()
+        width, height = self.winfo_reqwidth(), self.winfo_reqheight()
+        self.geometry(f"{width}x{height}+{(self.winfo_screenwidth() - width) // 2}+{(self.winfo_screenheight() - height) // 2}")
+        self.after(3000, self.destroy)
+
+
 GITHUB_REPO = "danijel0304/Alass-GUI"
 APP_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 APP_RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
@@ -196,7 +234,8 @@ class AlassGui(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(f"{APP_TITLE} v{APP_VERSION}")
-        self.minsize(760, 520)
+        set_window_icon(self)
+        self.minsize(1000, 620)
 
         self.log_queue: queue.Queue[tuple[str, str | None]] = queue.Queue()
         self.process: subprocess.Popen[str] | None = None
@@ -206,6 +245,7 @@ class AlassGui(tk.Tk):
         self.help_cache: dict[str, str] = {}
 
         self.language = tk.StringVar(value="en")
+        self.dark_mode = False
         self.alass_path = tk.StringVar(value=self._find_executable())
         self.video_file = tk.StringVar()
         self.correct_subtitle_file = tk.StringVar()
@@ -477,7 +517,8 @@ class AlassGui(tk.Tk):
         ttk.Button(toolbar, text=self._t("donate"), command=self._open_donate).grid(row=0, column=2, sticky="e", padx=(0, 16))
         self.update_button = ttk.Button(toolbar, text=self._t("check_updates"), command=self._check_for_updates)
         self.update_button.grid(row=0, column=3, sticky="e", padx=(0, 16))
-        ttk.Label(toolbar, text=self._t("language")).grid(row=0, column=4, sticky="e", padx=(0, 8))
+        ttk.Button(toolbar, text="Tamna tema" if not self.dark_mode else "Svijetla tema", command=self._toggle_theme).grid(row=0, column=4, sticky="e", padx=(0, 16))
+        ttk.Label(toolbar, text=self._t("language")).grid(row=0, column=5, sticky="e", padx=(0, 8))
         language_combo = ttk.Combobox(
             toolbar,
             textvariable=self.language,
@@ -485,7 +526,7 @@ class AlassGui(tk.Tk):
             width=10,
             state="readonly",
         )
-        language_combo.grid(row=0, column=5, sticky="e")
+        language_combo.grid(row=0, column=6, sticky="e")
         language_combo.bind("<<ComboboxSelected>>", lambda _event: self._change_language())
 
         tabs = ttk.Notebook(self)
@@ -518,13 +559,22 @@ class AlassGui(tk.Tk):
             self._refresh_batch_row(iid)
         self._refresh_command_preview()
 
+    def _toggle_theme(self) -> None:
+        if self.process is not None:
+            return
+        self.dark_mode = not self.dark_mode
+        for child in self.winfo_children():
+            child.destroy()
+        self._build_ui()
+        self._refresh_command_preview()
+
     def _create_scrollable_tab(self, tabs: ttk.Notebook, title: str) -> ttk.Frame:
         outer = ttk.Frame(tabs)
         outer.columnconfigure(0, weight=1)
         outer.rowconfigure(0, weight=1)
         tabs.add(outer, text=title)
 
-        canvas = tk.Canvas(outer, bg="#eef2f6", highlightthickness=0)
+        canvas = tk.Canvas(outer, bg=self._colors["bg"], highlightthickness=0)
         scrollbar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.grid(row=0, column=0, sticky="nsew")
@@ -549,29 +599,35 @@ class AlassGui(tk.Tk):
         return content
 
     def _configure_style(self) -> None:
-        self.configure(bg="#eef2f6")
+        self._colors = (
+            {"bg": "#0b1020", "panel": "#111827", "entry": "#0f172a", "border": "#263247", "text": "#e5e7eb", "muted": "#94a3b8", "button": "#1d293d", "active": "#26364f"}
+            if self.dark_mode
+            else {"bg": "#eef2f6", "panel": "#ffffff", "entry": "#ffffff", "border": "#c8d2dc", "text": "#17202a", "muted": "#243447", "button": "#d9e2ec", "active": "#c8d8e8"}
+        )
+        c = self._colors
+        self.configure(bg=c["bg"])
         style = ttk.Style(self)
         try:
             style.theme_use("clam")
         except tk.TclError:
             pass
-        style.configure(".", font=("DejaVu Sans", 10), background="#eef2f6", foreground="#17202a")
-        style.configure("TFrame", background="#eef2f6")
-        style.configure("TLabelframe", background="#eef2f6", bordercolor="#c8d2dc", relief="solid")
-        style.configure("TLabelframe.Label", background="#eef2f6", foreground="#243447", font=("DejaVu Sans", 10, "bold"))
-        style.configure("TLabel", background="#eef2f6", foreground="#243447")
-        style.configure("TEntry", fieldbackground="#ffffff", bordercolor="#b9c6d3", lightcolor="#b9c6d3", darkcolor="#b9c6d3")
-        style.configure("TCombobox", fieldbackground="#ffffff", bordercolor="#b9c6d3", arrowcolor="#243447")
-        style.configure("TButton", padding=(12, 7), background="#d9e2ec", foreground="#17202a", bordercolor="#aebdca")
-        style.map("TButton", background=[("active", "#c8d8e8"), ("disabled", "#e5e9ee")])
+        style.configure(".", font=("DejaVu Sans", 10), background=c["bg"], foreground=c["text"])
+        style.configure("TFrame", background=c["bg"])
+        style.configure("TLabelframe", background=c["bg"], bordercolor=c["border"], relief="solid")
+        style.configure("TLabelframe.Label", background=c["bg"], foreground=c["muted"], font=("DejaVu Sans", 10, "bold"))
+        style.configure("TLabel", background=c["bg"], foreground=c["muted"])
+        style.configure("TEntry", fieldbackground=c["entry"], foreground=c["text"], bordercolor=c["border"], lightcolor=c["border"], darkcolor=c["border"])
+        style.configure("TCombobox", fieldbackground=c["entry"], foreground=c["text"], bordercolor=c["border"], arrowcolor=c["muted"])
+        style.configure("TButton", padding=(12, 7), background=c["button"], foreground=c["text"], bordercolor=c["border"])
+        style.map("TButton", background=[("active", c["active"]), ("disabled", c["button"])])
         style.configure("Accent.TButton", background="#2f6fed", foreground="#ffffff", bordercolor="#265cc6")
         style.map("Accent.TButton", background=[("active", "#285ec9"), ("disabled", "#9fb8e8")])
-        style.configure("Treeview", background="#ffffff", fieldbackground="#ffffff", foreground="#17202a", rowheight=28, bordercolor="#c8d2dc")
-        style.configure("Treeview.Heading", background="#dce6f0", foreground="#17202a", font=("DejaVu Sans", 10, "bold"))
-        style.configure("Horizontal.TProgressbar", troughcolor="#dbe4ee", background="#2f6fed", bordercolor="#c8d2dc", lightcolor="#2f6fed", darkcolor="#2f6fed")
-        style.configure("TNotebook", background="#eef2f6", borderwidth=0)
-        style.configure("TNotebook.Tab", padding=(14, 8), background="#d9e2ec", foreground="#243447")
-        style.map("TNotebook.Tab", background=[("selected", "#ffffff")])
+        style.configure("Treeview", background=c["entry"], fieldbackground=c["entry"], foreground=c["text"], rowheight=28, bordercolor=c["border"])
+        style.configure("Treeview.Heading", background=c["button"], foreground=c["text"], font=("DejaVu Sans", 10, "bold"))
+        style.configure("Horizontal.TProgressbar", troughcolor=c["button"], background="#2f6fed", bordercolor=c["border"], lightcolor="#2f6fed", darkcolor="#2f6fed")
+        style.configure("TNotebook", background=c["bg"], borderwidth=0)
+        style.configure("TNotebook.Tab", padding=(14, 8), background=c["button"], foreground=c["muted"])
+        style.map("TNotebook.Tab", background=[("selected", c["entry"])])
 
     def _build_run_tab(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(0, weight=1)
@@ -762,7 +818,7 @@ class AlassGui(tk.Tk):
     def _build_help_tab(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(0, weight=1)
         parent.rowconfigure(0, weight=1)
-        text = tk.Text(parent, wrap="word", padx=12, pady=10, bg="#ffffff", fg="#17202a", relief="flat")
+        text = tk.Text(parent, wrap="word", padx=12, pady=10, bg=self._colors["entry"], fg=self._colors["text"], relief="flat")
         text.grid(row=0, column=0, sticky="nsew")
         scroll = ttk.Scrollbar(parent, command=text.yview)
         scroll.grid(row=0, column=1, sticky="ns")
@@ -2209,4 +2265,6 @@ alass film.mp4 los_titl.srt ispravljeni_titl.srt --no-split
 
 
 if __name__ == "__main__":
+    splash = StartupSplash()
+    splash.mainloop()
     AlassGui().mainloop()
