@@ -27,7 +27,7 @@ from self_updater import SelfUpdater
 
 
 APP_TITLE = "Alass GUI"
-APP_VERSION = "1.0.7"
+APP_VERSION = "1.0.8"
 APP_DIR = Path(__file__).resolve().parent
 GITHUB_REPO = "danijel0304/Alass-GUI"
 APP_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
